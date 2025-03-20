@@ -3,6 +3,7 @@
 * EC2
 * Key management
 ### IAM policy
+```json
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -14,6 +15,7 @@
     }
   ]
 }
+```
 
 # Azure permissions
 more stuff
