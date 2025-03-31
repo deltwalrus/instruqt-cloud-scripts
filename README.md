@@ -1,4 +1,4 @@
-# AWS permissions
+# AWS requirements
 ### Services (sets SCP policy)
 * EC2
 * Key management
@@ -17,9 +17,10 @@
 }
 ```
 
-# Azure permissions
+# Azure requirements
+`pip install azure-identity azure-mgmt-resource azure-mgmt-network azure-mgmt-compute`
 User-assigned role: _Contributor_
 Admin-assigned role: _Contributor_
 
-# GCP permissions
+# GCP requirements
 more more stuff
