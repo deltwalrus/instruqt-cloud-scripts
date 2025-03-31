@@ -18,9 +18,9 @@
 ```
 
 # Azure requirements
-`pip install azure-identity azure-mgmt-resource azure-mgmt-network azure-mgmt-compute`
-User-assigned role: _Contributor_
-Admin-assigned role: _Contributor_
+`pip install azure-identity azure-mgmt-resource azure-mgmt-network azure-mgmt-compute`  
+User-assigned role: _Contributor_  
+Admin-assigned role: _Contributor_  
 
 # GCP requirements
 more more stuff
