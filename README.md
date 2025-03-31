@@ -18,7 +18,7 @@
 ```
 
 # Azure permissions
-more stuff
+User-assigned role: _Contributor_
 
 # GCP permissions
 more more stuff
