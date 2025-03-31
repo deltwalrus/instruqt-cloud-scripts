@@ -19,6 +19,7 @@
 
 # Azure permissions
 User-assigned role: _Contributor_
+Admin-assigned role: _Contributor_
 
 # GCP permissions
 more more stuff
