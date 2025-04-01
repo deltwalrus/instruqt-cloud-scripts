@@ -5,7 +5,7 @@ set -euxo pipefail
 # Azure ARM-based VM Launch Script (using standard service principal credentials)
 #
 # This script logs in non-interactively using service principal credentials.
-# It assumes that the following environment variables are already set:
+# It assumes that the following environment variables are set:
 #   ARM_CLIENT_ID
 #   ARM_CLIENT_SECRET
 #   ARM_TENANT_ID
@@ -14,37 +14,46 @@ set -euxo pipefail
 ###############################################################################
 
 # Deployment variables
-# If AZURE_RESOURCE_GROUP is not set, a new RG will be created.
-resourceGroup="${AZURE_RESOURCE_GROUP:-}"
+resourceGroup="MyResourceGroup"
 location="${AZURE_LOCATION:-eastus}"
-vmName="MyUbuntuVM"
+vmName="MyUbuntuVM-$(date +%s)"
 adminUsername="instruqt"
 defaultImage="Canonical:ubuntu-24_04-lts:server-arm64:latest"
 image="${IMAGE_NAME:-$defaultImage}"
-defaultVmSize="Standard_A1_v5"
+# Set the default VM size to Standard_B1s, which satisfies policy restrictions.
+defaultVmSize="Standard_D2ps_v6"
 vmSize="${VM_SIZE:-$defaultVmSize}"
 
 ###############################################################################
-# Login using service principal credentials (assumed to be in the env)
+# Login using service principal credentials.
 ###############################################################################
-az login --service-principal --username "$ARM_CLIENT_ID" --password "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" --output none
-echo "Logged in with service principal. Using Azure location: $location"
+until az login --service-principal --username "$ARM_CLIENT_ID" --password "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" --output none; do
+  echo "Service principal login failed. Retrying in 3 seconds..."
+  sleep 3
+done
+echo "Logged in using service principal. Using Azure location: $location"
 
 ###############################################################################
-# Determine (or create) resource group.
-# If AZURE_RESOURCE_GROUP is set, we use that; otherwise, create a new RG.
+# Determine resource group to use.
 ###############################################################################
-if [[ -n "$resourceGroup" ]]; then
-  RG_NAME="$resourceGroup"
+if [[ -n "${AZURE_RESOURCE_GROUP:-}" ]]; then
+  RG_NAME="$AZURE_RESOURCE_GROUP"
   echo "Using resource group from AZURE_RESOURCE_GROUP: $RG_NAME"
 else
-  RG_NAME="ArmResourceGroup-$(date +%s)"
-  echo "No AZURE_RESOURCE_GROUP set; creating new resource group: $RG_NAME"
-  az group create --name "$RG_NAME" --location "$location" --output none
+  echo "AZURE_RESOURCE_GROUP not set. Checking for existing resource groups..."
+  EXISTING_RG=$(az group list --query "[0].name" --output tsv || true)
+  if [[ -n "$EXISTING_RG" ]]; then
+    RG_NAME="$EXISTING_RG"
+    echo "Found existing resource group: $RG_NAME"
+  else
+    RG_NAME="ArmResourceGroup-$(date +%s)"
+    echo "No existing resource group found; creating new one: $RG_NAME"
+    az group create --name "$RG_NAME" --location "$location" --output none
+  fi
 fi
 
 ###############################################################################
-# Create (or update) virtual network and subnet in the resource group.
+# Create (or update) virtual network and subnet.
 ###############################################################################
 VNET_NAME="ArmVNet-$RG_NAME"
 SUBNET_NAME="ArmSubnet"
@@ -52,7 +61,7 @@ echo "Creating/updating virtual network $VNET_NAME and subnet $SUBNET_NAME..."
 az network vnet create --resource-group "$RG_NAME" --name "$VNET_NAME" --subnet-name "$SUBNET_NAME" --location "$location" --output none
 
 ###############################################################################
-# Create a network security group (NSG) in the resource group.
+# Create a network security group (NSG).
 ###############################################################################
 NSG_NAME="ArmNSG-$RG_NAME-$(date +%s)"
 echo "Creating network security group $NSG_NAME..."
@@ -66,14 +75,14 @@ az network nsg rule create --resource-group "$RG_NAME" --nsg-name "$NSG_NAME" \
   --name AllowSSH --protocol tcp --priority 1000 --destination-port-range 22 --output none
 
 ###############################################################################
-# Create a public IP address in the resource group using --sku standard.
+# Create a public IP address.
 ###############################################################################
 PUBIP_NAME="ArmPublicIP-$RG_NAME-$(date +%s)"
 echo "Creating public IP $PUBIP_NAME..."
 az network public-ip create --resource-group "$RG_NAME" --name "$PUBIP_NAME" --allocation-method Static --sku standard --output none
 
 ###############################################################################
-# Create a network interface (NIC) with the NSG and public IP.
+# Create a network interface (NIC).
 ###############################################################################
 NIC_NAME="ArmNIC-$RG_NAME-$(date +%s)"
 echo "Creating network interface $NIC_NAME..."
@@ -83,7 +92,7 @@ az network nic create --resource-group "$RG_NAME" --name "$NIC_NAME" \
   --output none
 
 ###############################################################################
-# Ensure an SSH key exists at ~/.ssh/id_rsa.pub; generate one if missing.
+# Ensure an SSH key exists; generate one if missing.
 ###############################################################################
 if [ ! -f "$HOME/.ssh/id_rsa.pub" ]; then
   echo "No SSH public key found at ~/.ssh/id_rsa.pub. Generating one..."
