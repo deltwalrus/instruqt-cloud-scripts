@@ -1,72 +1,86 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-###
-# NB! WIP script, not yet fully debugged
-###
-
-# Determine project, zone, and region from your gcloud config
+# Retrieve project from gcloud config.
 PROJECT=$(gcloud config get-value project)
+
+# Retrieve zone from gcloud config, default to "us-east5" if not set.
 ZONE=$(gcloud config get-value compute/zone || true)
 if [ -z "$ZONE" ]; then
-  # Default zone if none is set – choose one that supports ARM (e.g., us-east1-a)
-  ZONE="us-east1-a"
+  ZONE="us-central1-a"
 fi
+
+# Retrieve region from gcloud config; if not set, derive region from zone.
 REGION=$(gcloud config get-value compute/region || true)
 if [ -z "$REGION" ]; then
-  # Derive region from zone (e.g. us-east1 from us-east1-a)
-  REGION="${ZONE%-*}"
+  # If ZONE is like "us-east5", then region will be "us-east5"
+  REGION="$ZONE"
 fi
 
 echo "GCP Project: $PROJECT"
 echo "Zone: $ZONE, Region: $REGION"
 
-# Create a firewall rule to allow inbound traffic on common ports
+# Define the ports you want to allow.
+PORTS=(22 80 443 3306 5432 6379 27017 5000 8080 8443)
+
+# Build the allowed string (e.g. "tcp:22,tcp:80,tcp:443,...")
+allowed=""
+for port in "${PORTS[@]}"; do
+  if [ -z "$allowed" ]; then
+    allowed="tcp:$port"
+  else
+    allowed="$allowed,tcp:$port"
+  fi
+done
+echo "Allowed protocols: $allowed"
+
+# Create a firewall rule to allow inbound traffic on the allowed ports.
 FIREWALL_NAME="arm-vm-fw-$(date +%s)"
-PORTS="22,80,443,3306,5432,6379,27017,5000,8080,8443"
-echo "Creating firewall rule $FIREWALL_NAME to allow TCP ports: $PORTS"
+echo "Creating firewall rule $FIREWALL_NAME for ports: ${PORTS[*]}"
 gcloud compute firewall-rules create "$FIREWALL_NAME" \
-  --allow tcp:$PORTS \
+  --allow "$allowed" \
   --target-tags "arm-vm" \
   --quiet
 
-# Create the ARM-based VM.
-# Use an Ampere-based machine type: t2a-standard-1.
-# Use the "cos-arm64-stable" image from the cos-cloud project.
+# Create an ARM-based VM using an Ampere-based machine type and the COS ARM image.
 INSTANCE_NAME="arm-vm-$(date +%s)"
-echo "Creating instance $INSTANCE_NAME (machine type: t2a-standard-1)..."
+echo "Creating ARM-based instance $INSTANCE_NAME (machine type: t2a-standard-1)..."
 gcloud compute instances create "$INSTANCE_NAME" \
+  --zone "$ZONE" \
   --machine-type=t2a-standard-1 \
   --image-family=cos-arm64-stable \
   --image-project=cos-cloud \
   --tags=arm-vm \
   --quiet
 
-# (Optionally wait a bit for the instance to be ready)
-echo "Waiting for instance to be provisioned..."
-sleep 30
+# Wait in a loop until the instance is provisioned and an external IP is assigned.
+EXTERNAL_IP=""
+echo "Waiting for instance $INSTANCE_NAME to have an external IP..."
+until [ -n "$EXTERNAL_IP" ]; do
+  sleep 10
+  EXTERNAL_IP=$(gcloud compute instances describe "$INSTANCE_NAME" \
+    --zone "$ZONE" \
+    --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+done
 
-# Retrieve the external IP address
-EXTERNAL_IP=$(gcloud compute instances describe "$INSTANCE_NAME" \
-  --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
 echo "Instance $INSTANCE_NAME is running with external IP: $EXTERNAL_IP"
 
-# Print SSH instructions
+# Prepare the SSH command using gcloud's compute ssh.
 SSH_CMD="gcloud compute ssh $INSTANCE_NAME --zone $ZONE"
 echo "================================================================"
-echo "GCP ARM-based VM details:"
+echo "GCP ARM-based VM Details:"
 echo "  Project:       $PROJECT"
 echo "  Instance Name: $INSTANCE_NAME"
 echo "  Zone:          $ZONE"
 echo "  Region:        $REGION"
 echo "  External IP:   $EXTERNAL_IP"
 echo "================================================================"
-echo "To SSH into your VM, run:"
+echo "To SSH, run:"
 echo "  $SSH_CMD"
 echo "================================================================"
 
 cat <<EOF > /tmp/gcp-instance-info.txt
-GCP ARM-based VM details:
+GCP ARM-based VM Details:
 
 Project:       $PROJECT
 Instance Name: $INSTANCE_NAME
@@ -77,7 +91,7 @@ External IP:   $EXTERNAL_IP
 To SSH, run:
   $SSH_CMD
 
-To delete the instance and firewall rule:
+To delete the instance and firewall rule, run:
   gcloud compute instances delete $INSTANCE_NAME --zone $ZONE --quiet
   gcloud compute firewall-rules delete $FIREWALL_NAME --quiet
 EOF

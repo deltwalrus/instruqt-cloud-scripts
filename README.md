@@ -21,4 +21,5 @@
 User-assigned role: _Contributor_  
 
 # GCP requirements
-TBD
+User role: _roles/writer_  
+*NB:* Not all GCP machine types are available in all geographic zones, see https://cloud.google.com/compute/docs/regions-zones#available for details  
