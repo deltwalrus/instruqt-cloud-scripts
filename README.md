@@ -22,4 +22,7 @@ User-assigned role: _Contributor_
 
 # GCP requirements
 User role: _roles/writer_  
-*NB:* Not all GCP machine types are available in all geographic zones, see https://cloud.google.com/compute/docs/regions-zones#available for details  
+Required services:
+- Service Usage API
+- Compute Engine API
+*NB:* Not all GCP machine types are available in all geographic zones, see https://cloud.google.com/compute/docs/regions-zones#available for details

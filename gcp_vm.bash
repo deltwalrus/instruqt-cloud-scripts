@@ -4,18 +4,10 @@ set -euxo pipefail
 # Retrieve project from gcloud config.
 PROJECT=$(gcloud config get-value project)
 
-# Retrieve zone from gcloud config, default to "us-east5" if not set.
-ZONE=$(gcloud config get-value compute/zone || true)
-if [ -z "$ZONE" ]; then
-  ZONE="us-central1-a"
-fi
-
-# Retrieve region from gcloud config; if not set, derive region from zone.
-REGION=$(gcloud config get-value compute/region || true)
-if [ -z "$REGION" ]; then
-  # If ZONE is like "us-east5", then region will be "us-east5"
-  REGION="$ZONE"
-fi
+# Set zone to us-central1-a (which supports T2A systems).
+ZONE="${ZONE:-us-central1-a}"
+# Derive region from the zone (e.g., "us-central1-a" -> "us-central1").
+REGION="${ZONE%-*}"
 
 echo "GCP Project: $PROJECT"
 echo "Zone: $ZONE, Region: $REGION"
@@ -23,7 +15,7 @@ echo "Zone: $ZONE, Region: $REGION"
 # Define the ports you want to allow.
 PORTS=(22 80 443 3306 5432 6379 27017 5000 8080 8443)
 
-# Build the allowed string (e.g. "tcp:22,tcp:80,tcp:443,...")
+# Build the allowed string (e.g., "tcp:22,tcp:80,tcp:443,...")
 allowed=""
 for port in "${PORTS[@]}"; do
   if [ -z "$allowed" ]; then
@@ -42,7 +34,15 @@ gcloud compute firewall-rules create "$FIREWALL_NAME" \
   --target-tags "arm-vm" \
   --quiet
 
-# Create an ARM-based VM using an Ampere-based machine type and the COS ARM image.
+# Ensure the SSH key exists for gcloud at ~/.ssh/google_compute_engine.pub.
+if [ ! -f "$HOME/.ssh/google_compute_engine.pub" ]; then
+  echo "No SSH key found at ~/.ssh/google_compute_engine.pub. Generating one with an empty passphrase..."
+  ssh-keygen -t rsa -b 3072 -N "" -f "$HOME/.ssh/google_compute_engine"
+fi
+
+PUB_KEY=$(cat "$HOME/.ssh/google_compute_engine.pub")
+
+# Create an ARM-based VM using the COS ARM64 image.
 INSTANCE_NAME="arm-vm-$(date +%s)"
 echo "Creating ARM-based instance $INSTANCE_NAME (machine type: t2a-standard-1)..."
 gcloud compute instances create "$INSTANCE_NAME" \
@@ -51,9 +51,10 @@ gcloud compute instances create "$INSTANCE_NAME" \
   --image-family=cos-arm64-stable \
   --image-project=cos-cloud \
   --tags=arm-vm \
+  --metadata=ssh-keys="cos:${PUB_KEY}" \
   --quiet
 
-# Wait in a loop until the instance is provisioned and an external IP is assigned.
+# Wait until the instance is provisioned and an external IP is assigned.
 EXTERNAL_IP=""
 echo "Waiting for instance $INSTANCE_NAME to have an external IP..."
 until [ -n "$EXTERNAL_IP" ]; do
@@ -65,8 +66,8 @@ done
 
 echo "Instance $INSTANCE_NAME is running with external IP: $EXTERNAL_IP"
 
-# Prepare the SSH command using gcloud's compute ssh.
-SSH_CMD="gcloud compute ssh $INSTANCE_NAME --zone $ZONE"
+# Prepare the SSH command forcing login as 'cos'
+SSH_CMD="gcloud compute ssh $INSTANCE_NAME --zone $ZONE --ssh-flag='-l cos'"
 echo "================================================================"
 echo "GCP ARM-based VM Details:"
 echo "  Project:       $PROJECT"
